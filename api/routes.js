@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
-const session = require('express-session');
+const session = require("express-session");
 
 router.get("/", (req, res) => {
   res.send("This is from Accounts home");
@@ -17,46 +17,65 @@ router.post("/login", async (req, res) => {
       {
         login_id: loginid,
         password: password,
+      },
+      {
+        timeout: 10000,
       }
     );
-    
-    // Assuming the API response contains an access token
+
     const accessToken = apiResponse.data.access_token;
 
-    // Store the access token in the session
-    req.session.accessToken = accessToken;
-    console.log(req.session.accessToken);
-    res.render("board")
+    console.log("Retrieved Access Token:", accessToken);
 
+    req.session.accessToken = accessToken;
+
+    const customerListResponse = await axios.get(
+      "https://qa2.sunbasedata.com/sunbase/portal/api/assignment.jsp?cmd=get_customer_list",
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    const customerList = customerListResponse.data;
+
+    console.log("Customer List:", customerList);
+
+    res.render("board", { data: customerList });
   } catch (error) {
-    // Log the detailed response from the external API
-    console.error("Error during login:", error.response.data);
-    console.error("Status Code:", error.response.status);
-    // Send an error response back to the client
-    res
-      .status(error.response.status || 500)
-      .json({ error: "Internal Server Error" });
+    console.error("Error during login:", error.message);
+
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 router.post("/create-customer", async (req, res) => {
   try {
-    // Retrieve the access token from the session
+    console.log(req.session); 
     const accessToken = req.session.accessToken;
-
     console.log(accessToken);
 
-    const { first_name, last_name, street, address, city, state, email, phone } = req.body;
+    const {
+      first_name,
+      last_name,
+      street,
+      address,
+      city,
+      state,
+      email,
+      phone,
+    } = req.body;
 
     if (!first_name || !last_name) {
-      return res.status(400).json({ error: "First Name or Last Name is missing" });
+      return res
+        .status(400)
+        .json({ error: "First Name or Last Name is missing" });
     }
 
     // Make a POST request to create a new customer
     const apiResponse = await axios.post(
-      "https://qa2.sunbasedata.com/sunbase/portal/api/assignment.jsp",
+      "https://qa2.sunbasedata.com/sunbase/portal/api/assignment.jsp?cmd=create",
       {
-        cmd: "create",
         first_name: first_name,
         last_name: last_name,
         street: street,
@@ -76,43 +95,12 @@ router.post("/create-customer", async (req, res) => {
     if (apiResponse.status === 201) {
       res.status(201).json({ message: "Successfully Created" });
     } else {
-      res.status(apiResponse.status).json({ error: "Failed to create customer" });
+      res
+        .status(apiResponse.status)
+        .json({ error: "Failed to create customer" });
     }
   } catch (error) {
     console.error("Error creating customer:", error.response.data);
-    console.error("Status Code:", error.response.status);
-
-    res
-      .status(error.response.status || 500)
-      .json({ error: "Internal Server Error" });
-  }
-});
-
-
-router.get("/get-customer-list", async (req, res) => {
-  try {
-    const accessToken = req.headers.authorization || req.session.accessToken;
-
-    const apiResponse = await axios.get(
-      "https://qa2.sunbasedata.com/sunbase/portal/api/assignment.jsp",
-      {
-        params: {
-          cmd: "get_customer_list",
-        },
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    if (apiResponse.status === 200) {
-      const customerList = apiResponse.data;
-      res.status(200).json(customerList);
-    } else {
-      res.status(apiResponse.status).json({ error: "Failed to get customer list" });
-    }
-  } catch (error) {
-    console.error("Error getting customer list:", error.response.data);
     console.error("Status Code:", error.response.status);
 
     res
@@ -128,7 +116,7 @@ router.post("/delete-customer", async (req, res) => {
 
     const { cmd, uuid } = req.body;
 
-    if (!cmd || cmd !== 'delete' || !uuid) {
+    if (!cmd || cmd !== "delete" || !uuid) {
       return res.status(400).json({ error: "Invalid request parameters" });
     }
 
@@ -169,7 +157,12 @@ router.post("/update-customer", async (req, res) => {
 
     const { cmd, uuid, ...customerData } = req.body;
 
-    if (!cmd || cmd !== 'update' || !uuid || Object.keys(customerData).length === 0) {
+    if (
+      !cmd ||
+      cmd !== "update" ||
+      !uuid ||
+      Object.keys(customerData).length === 0
+    ) {
       return res.status(400).json({ error: "Invalid request parameters" });
     }
 
@@ -211,6 +204,5 @@ router.get("/login", (req, res) => {
 router.get("/board", (req, res) => {
   res.render("board");
 });
-
 
 module.exports = router;
