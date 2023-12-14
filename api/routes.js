@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
+const session = require('express-session');
 
 router.get("/", (req, res) => {
   res.send("This is from Accounts home");
@@ -18,8 +19,15 @@ router.post("/login", async (req, res) => {
         password: password,
       }
     );
+    
+    // Assuming the API response contains an access token
+    const accessToken = apiResponse.data.access_token;
 
-    res.json(apiResponse.data);
+    // Store the access token in the session
+    req.session.accessToken = accessToken;
+    console.log(req.session.accessToken);
+    res.render("board")
+
   } catch (error) {
     // Log the detailed response from the external API
     console.error("Error during login:", error.response.data);
@@ -33,9 +41,10 @@ router.post("/login", async (req, res) => {
 
 router.post("/create-customer", async (req, res) => {
   try {
-    // Retrieve the access token from the user's session or request headers
-    // Note: This is a simplified example; you may want to use a proper authentication mechanism.
-    const accessToken = req.headers.authorization || req.session.accessToken;
+    // Retrieve the access token from the session
+    const accessToken = req.session.accessToken;
+
+    console.log(accessToken);
 
     const { first_name, last_name, street, address, city, state, email, phone } = req.body;
 
@@ -64,25 +73,136 @@ router.post("/create-customer", async (req, res) => {
       }
     );
 
-    // Check the response status and send the appropriate status to the client
     if (apiResponse.status === 201) {
       res.status(201).json({ message: "Successfully Created" });
     } else {
       res.status(apiResponse.status).json({ error: "Failed to create customer" });
     }
   } catch (error) {
-    // Log the detailed response from the external API
     console.error("Error creating customer:", error.response.data);
     console.error("Status Code:", error.response.status);
 
-    // Send an error response back to the client
     res
       .status(error.response.status || 500)
       .json({ error: "Internal Server Error" });
   }
 });
 
-module.exports = router;
+
+router.get("/get-customer-list", async (req, res) => {
+  try {
+    const accessToken = req.headers.authorization || req.session.accessToken;
+
+    const apiResponse = await axios.get(
+      "https://qa2.sunbasedata.com/sunbase/portal/api/assignment.jsp",
+      {
+        params: {
+          cmd: "get_customer_list",
+        },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (apiResponse.status === 200) {
+      const customerList = apiResponse.data;
+      res.status(200).json(customerList);
+    } else {
+      res.status(apiResponse.status).json({ error: "Failed to get customer list" });
+    }
+  } catch (error) {
+    console.error("Error getting customer list:", error.response.data);
+    console.error("Status Code:", error.response.status);
+
+    res
+      .status(error.response.status || 500)
+      .json({ error: "Internal Server Error" });
+  }
+});
+
+// Delete a customer
+router.post("/delete-customer", async (req, res) => {
+  try {
+    const accessToken = req.headers.authorization || req.session.accessToken;
+
+    const { cmd, uuid } = req.body;
+
+    if (!cmd || cmd !== 'delete' || !uuid) {
+      return res.status(400).json({ error: "Invalid request parameters" });
+    }
+
+    const apiResponse = await axios.post(
+      "https://qa2.sunbasedata.com/sunbase/portal/api/assignment.jsp",
+      {
+        cmd: "delete",
+        uuid: uuid,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (apiResponse.status === 200) {
+      res.status(200).json({ message: "Successfully deleted" });
+    } else if (apiResponse.status === 400) {
+      res.status(400).json({ error: "UUID not found" });
+    } else {
+      res.status(500).json({ error: "Error Not deleted" });
+    }
+  } catch (error) {
+    console.error("Error deleting customer:", error.response.data);
+    console.error("Status Code:", error.response.status);
+
+    res
+      .status(error.response.status || 500)
+      .json({ error: "Internal Server Error" });
+  }
+});
+
+// Update a customer
+router.post("/update-customer", async (req, res) => {
+  try {
+    const accessToken = req.headers.authorization || req.session.accessToken;
+
+    const { cmd, uuid, ...customerData } = req.body;
+
+    if (!cmd || cmd !== 'update' || !uuid || Object.keys(customerData).length === 0) {
+      return res.status(400).json({ error: "Invalid request parameters" });
+    }
+
+    const apiResponse = await axios.post(
+      "https://qa2.sunbasedata.com/sunbase/portal/api/assignment.jsp",
+      {
+        cmd: "update",
+        uuid: uuid,
+        ...customerData,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (apiResponse.status === 200) {
+      res.status(200).json({ message: "Successfully updated" });
+    } else if (apiResponse.status === 400) {
+      res.status(400).json({ error: "UUID not found" });
+    } else {
+      res.status(500).json({ error: "Error updating customer" });
+    }
+  } catch (error) {
+    console.error("Error updating customer:", error.response.data);
+    console.error("Status Code:", error.response.status);
+
+    res
+      .status(error.response.status || 500)
+      .json({ error: "Internal Server Error" });
+  }
+});
 
 router.get("/login", (req, res) => {
   res.render("login");
@@ -92,62 +212,5 @@ router.get("/board", (req, res) => {
   res.render("board");
 });
 
-// router.post("/signup", async (req, res) => {
-//   const { name, email, username, password, confirmpassword } = req.body;
-
-//   if (!name || !email || !username || !password || !confirmpassword) {
-//     res.render("signup", {
-//       csrfToken: req.csrfToken(),
-//       err: "All fields required!",
-//     });
-//   } else if (password != confirmpassword) {
-//     res.render("signup", {
-//       csrfToken: req.csrfToken(),
-//       err: "Passwords are not matching!",
-//     });
-//   } else {
-//     var userData = await users.findOne({
-//       $or: [{ email: email }, { username: username }],
-//     });
-
-// if(userData){
-//     res.render("signup", {
-//         csrfToken: req.csrfToken(),
-//         err: "User Exists! Try again",
-//       });
-// }else{
-// var salt = await bcrypt.genSalt(12);
-// var hash = await bcrypt.hash(password, salt);
-
-// await users({
-//     name:name,
-//     email:email,
-//     username:username,
-//     password:hash,
-// }).save();
-
-// res.redirect("/login");
-
-// }
-
-//   }
-// });
-
-// router.post('/login',(req,res,next)=>{
-//   passport.authenticate('local',{
-//     failureRedirect : '/login',
-//     successRedirect : '/board',
-//     failureFlash : true,
-//   })(req,res,next);
-// });
-
-// router.get('/logout',(req,res)=>{
-//   req.logOut();
-//   req.session.destroy((err)=>{
-// res.redirect('/');
-//   })
-// })
-// //board routes
-// router.use('/board',require("./idearoutes"));
 
 module.exports = router;
